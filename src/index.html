@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Gold Price Monitor</title>
+    <style>
+      body {
+        height: 100vh;
+        margin: 0;
+        overflow: hidden;
+        user-select: none;
+        -webkit-app-region: drag;
+      }
+      #price {
+        width: 100%;
+        height: 100%;
+        border-radius: 6px;
+        font-size: 12px;
+        color: #bbb;
+        background: #303030dd;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="price"></div>
+    <script>
+      const priceDom = document.getElementById('price')
+      const getPrice = async (sustain) => {
+        clearTimeout(getPrice.timer)
+        if (sustain != null) getPrice.sustain = sustain
+        if (sustain == false) return
+        let time = Date.now(), res = await fetch('https://ms.jr.jd.com/gw/generic/hj/h5/m/latestPrice').then(e => e.json(), e => e)
+        priceDom.innerText = (+res?.resultData?.datas?.price || 0).toFixed(2)
+        if (getPrice.sustain) getPrice.timer = setTimeout(getPrice, Math.max(0, 2200 - (Date.now() - time)))
+      }
+      window.apiBridge.isWindowVisible().then(res => res && getPrice(true))
+      window.apiBridge.onWindowVisibleChange((event, res) => getPrice(res))
+    </script>
+  </body>
+</html>
