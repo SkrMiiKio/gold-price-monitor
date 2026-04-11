@@ -2,6 +2,7 @@
 <html>
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';">
     <title>Gold Price Monitor</title>
     <style>
       body {
@@ -9,36 +10,100 @@
         margin: 0;
         overflow: hidden;
         user-select: none;
-        -webkit-app-region: drag;
       }
-      #price {
+      #app, .price {
         width: 100%;
         height: 100%;
+      }
+      .price {
         border-radius: 6px;
+        line-height: 100vh;
         font-size: 12px;
+        font-family: sans-serif;
         color: #bbb;
         background: #303030dd;
+        text-align: center;
         white-space: nowrap;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+      }
+      .price > span {
+        padding: 0 0.4em;
+      }
+      .price-raise {
+        margin-left: 0.5em;
+        font-size: 11px;
+        color: #999;
+      }
+      .price-raise:empty {
+        display: none;
+      }
+      .price-raise.is-up {
+        color: #f04242;
+      }
+      .price-raise.is-down {
+        color: #2ed12e;
       }
     </style>
   </head>
   <body>
-    <div id="price"></div>
-    <script>
-      const priceDom = document.getElementById('price')
-      const getPrice = async (sustain) => {
-        clearTimeout(getPrice.timer)
-        if (sustain != null) getPrice.sustain = sustain
-        if (sustain == false) return
-        let time = Date.now(), res = await fetch('https://ms.jr.jd.com/gw/generic/hj/h5/m/latestPrice').then(e => e.json(), e => e)
-        priceDom.innerText = (+res?.resultData?.datas?.price || 0).toFixed(2)
-        if (getPrice.sustain) getPrice.timer = setTimeout(getPrice, Math.max(0, 2200 - (Date.now() - time)))
+    <div id="app">
+      <div class="price">
+        <span>0.00<span class="price-raise"></span></span>
+      </div>
+    </div>
+
+    <script type="module">
+      import { getGoldPrice } from './api.js'
+
+      let config = {}, lastData = null, lastInfo = null, lastWidth = null, loop = false, time, timer
+
+      const { apiBridge } = window
+      const priceDom = document.querySelector('#app > .price')
+      const wrapDom = priceDom.firstElementChild, [textNode, raiseDom] = wrapDom.childNodes
+      const getPrice = async (sign) => {
+        clearTimeout(timer)
+        if (sign != null) loop = !!sign
+        if (sign == false || !config.priceSource) return
+        let curTime = time = Date.now()
+        let res = await getGoldPrice(config.priceSource).catch(e => e)
+        if (curTime !== time) return
+        lastData = res.data || res.datas || null, res = lastData || {}
+        textNode.textContent = (+res.lastPrice || 0).toFixed(config.pricePrecision || 2)
+        raiseDom.className = `price-raise${res.raisePercent > 0 ? ' is-up' : res.raisePercent < 0 ? ' is-down' : ''}`
+        raiseDom.innerText = !config.showPriceRaise ? '' : `${res.raisePercent > 0 ? '+' : ''}${(res.raisePercent * 100 || 0).toFixed(2)}%`
+        let wrapWidth = Math.max(40, wrapDom.offsetWidth)
+        if (lastWidth == null || lastWidth !== wrapWidth) apiBridge.setContentSize({ width: (lastWidth = wrapWidth) })
+        if (loop && config.refreshRate > 0) timer = setTimeout(getPrice, Math.max(0, config.refreshRate - (Date.now() - curTime)))
       }
-      window.apiBridge.isWindowVisible().then(res => res && getPrice(true))
-      window.apiBridge.onWindowVisibleChange((event, res) => getPrice(res))
+      const updateToolTip = () => {
+        if (lastInfo === lastData) return
+        lastInfo = lastData
+        lastInfo && apiBridge.getPriceInfo({ type: 'text', data: lastInfo }).then(res => { priceDom.setAttribute('title', res) })
+      }
+
+      window.addEventListener('mousemove', updateToolTip, { passive: true })
+
+      window.addEventListener('mouseenter', updateToolTip)
+
+      apiBridge.isUseCssDrag().then(res => {
+        document.body.style.setProperty('-webkit-app-region', res ? 'drag' : 'no-drag')
+        if (!res) {
+          window.addEventListener('mousedown', (e) => {
+            if (e.button == 0 || e.button == 1) apiBridge.setDragState(true)
+          })
+          window.addEventListener('mouseup', (e) => {
+            if (e.button == 0 || e.button == 1) apiBridge.setDragState(false)
+          })
+          window.addEventListener('contextmenu', (e) => {
+            apiBridge.setDragState(false)
+          })
+        }
+      })
+
+      apiBridge.onGetPriceData(() => { apiBridge.setPriceData(lastData) })
+
+      apiBridge.onVisibleChange((event, res) => { getPrice(res) })
+
+      apiBridge.onConfigChange((event, res) => { Object.assign(config, res), loop && getPrice() })
     </script>
   </body>
 </html>

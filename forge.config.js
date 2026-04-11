@@ -1,9 +1,9 @@
-const fs = require('node:fs')
-const path = require('node:path')
-const { FusesPlugin } = require('@electron-forge/plugin-fuses')
-const { FuseV1Options, FuseVersion } = require('@electron/fuses')
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { FusesPlugin } from '@electron-forge/plugin-fuses'
+import { FuseV1Options, FuseVersion } from '@electron/fuses'
 
-module.exports = {
+export default {
   packagerConfig: {
     packageManager: 'npm',
     icon: 'src/assets/icon.ico',
@@ -48,13 +48,13 @@ module.exports = {
   hooks: {
     packageAfterExtract: (config, buildPath) => {
       // 移除部分用不到的文件，优化生成包大小
-      const localeDir = path.join(buildPath, 'locales')
-      const licensePath = path.join(buildPath, 'LICENSES.chromium.html')
+      let localeDir = path.join(buildPath, 'locales')
+      let licensePath = path.join(buildPath, 'LICENSES.chromium.html')
       fs.existsSync(licensePath) && fs.unlinkSync(licensePath)
       fs.existsSync(localeDir) && fs.readdir(localeDir, (err, files) => {
         if (!(files && files.length)) return
         for (let i = 0, l = files.length; i < l; i++) {
-          if (!(files[i].startsWith('en') || files[i].startsWith('zh'))) {
+          if (!files[i].startsWith('en-US') && !files[i].startsWith('zh-CN')) {
             fs.unlinkSync(path.join(localeDir, files[i]))
           }
         }

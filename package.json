@@ -1,12 +1,13 @@
 {
   "name": "gold-price-monitor",
   "productName": "Gold Price Monitor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "金价实时监控",
   "author": "MiiKio",
   "license": "GPL-3.0",
   "private": true,
-  "main": "src/index.js",
+  "type": "module",
+  "main": "src/main.js",
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package",
