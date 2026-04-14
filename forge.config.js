@@ -8,7 +8,8 @@ export default {
     packageManager: 'npm',
     icon: 'src/assets/icon.ico',
     asar: true,
-    overwrite: true
+    overwrite: true,
+    ignore: [/^\/(?!node_modules|src|package\.json|forge\.config\.js)/]
   },
   rebuildConfig: {},
   makers: [

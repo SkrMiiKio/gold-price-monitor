@@ -29,12 +29,12 @@
     "electron": "^28"
   },
   "engines": {
-    "node": ">=16",
-    "npm": ">=8"
+    "node": ">=18",
+    "npm": ">=10"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/SrkMiiKio/gold-price-monitor.git",
+    "url": "https://github.com/SkrMiiKio/gold-price-monitor.git",
     "url2": "https://gitee.com/miikio/gold-price-monitor.git"
   }
 }
