@@ -42,15 +42,20 @@ export default {
   ],
   /** 刷新频率 */
   refreshRateList: [
-    { name: '暂停', time: 0 },
-    { name: '极快 (0.5s)', time: 500 },
-    { name: '快 (1s)', time: 1000 },
-    { name: '中 (2s)', time: 2000, default: true },
-    { name: '慢 (3s)', time: 3000 },
-    { name: '极慢 (5s)', time: 5000 },
-    { name: '每十秒 (10s)', time: 10000 },
-    { name: '每半分 (30s)', time: 30000 },
-    { name: '每分钟 (60s)', time: 60000 }
+    { name: '暂停', value: 0 },
+    { name: '极快 (0.5s)', value: 500 },
+    { name: '快 (1s)', value: 1000 },
+    { name: '中 (2s)', value: 2000, default: true },
+    { name: '慢 (3s)', value: 3000 },
+    { name: '极慢 (5s)', value: 5000 },
+    { name: '每十秒 (10s)', value: 10000 },
+    { name: '每半分 (30s)', value: 30000 },
+    { name: '每分钟 (60s)', value: 60000 }
+  ],
+  /** 主题样式 */
+  themeStyleList: [
+    { name: '明亮', value: 'light' },
+    { name: '灰暗', value: 'dark', default: true }
   ],
   /** 来源详情 */
   sourceDetailUrl: 'https://gold-price-pro.pf.jd.com' // https://m.jr.jd.com/finance-gold/msjgold/homepage

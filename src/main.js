@@ -1,7 +1,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, screen, shell, ipcMain, BrowserWindow, Menu, Tray } from 'electron'
+import { app, screen, shell, ipcMain, nativeTheme, BrowserWindow, Menu, Tray } from 'electron'
 import startup from 'electron-squirrel-startup'
 import config from './config.js'
 
@@ -12,85 +12,127 @@ const debugEnable = false, cssDragEnable = false
 let appWindow, appTray, setting, priceData = null, priceDataChangeTicks = []
 
 const initSetting = () => {
-  setting = Object.create(null, {
-    // Base props
-    $data: {
-      writable: true, value: null
+  let data = null
+  let dataPath = path.join(app.getPath('userData'), 'setting.json')
+  let dataDesc = {}
+  let dataProto = {
+    $get(key) {
+      data || this.$init()
+      return key != null ? data[key] : data
     },
-    $path: {
-      value: path.join(app.getPath('userData'), 'setting.json')
-    },
-    $get: {
-      value(key) {
-        let data = this.$data ||= fs.existsSync(this.$path) && JSON.parse(fs.readFileSync(this.$path) || null) || {}
-        return key != null ? data[key] : data
-      }
-    },
-    $set: {
-      value(key, value) {
-        if (key != null) {
-          let data = this.$get()
-          if (data[key] === value) return
-          data[key] = value
-        } else {
-          this.$data = {}
-        }
+    $set(key, value) {
+      if (key != null) {
+        data || this.$init()
+        let { default: defVal, writable = true, checkable = true, beforeSet } = dataConfig[key] || {}
+        if (!writable || checkable && !this.$check(key, value)) return
+        if (value === void 0) value = typeof defVal == 'function' ? defVal.call(this) : defVal
+        if (typeof beforeSet == 'function' && beforeSet.call(this, value) === false) return
+        if (data[key] !== value) data[key] = value, this.$save()
+      } else if (value != null) {
+        this.$init(value)
         this.$save()
       }
     },
-    $save: {
-      value(sync) {
-        let ref = this.$save
-        clearTimeout(ref.timer)
-        ref.fn ||= () => { this.$data && fs.writeFileSync(this.$path, JSON.stringify(this.$data)) }
-        sync ? ref.fn() : (ref.timer = setTimeout(ref.fn, 2000))
+    $check(key, value) {
+      if (key == null) return false
+      let { type, enums } = dataConfig[key] || {}
+      if (type != null && !Array.isArray(type)) type = [type]
+      return (
+        (!type || value !== null && type.some(v => typeof v == 'string' ? typeof value === v : value instanceof v)) &&
+        (!enums || enums.includes(value))
+      )
+    },
+    $init(map) {
+      try {
+        map ||= fs.existsSync(dataPath) && JSON.parse(fs.readFileSync(dataPath) || null)
+        data = typeof map == 'object' && map || {}
+        for (let key in dataConfig) {
+          if (data[key] !== void 0 && this.$check(key, data[key])) continue
+          let defVal = dataConfig[key].default
+          data[key] = typeof defVal == 'function' ? defVal.call(this) : defVal
+        }
+      } catch (e) {
+        data = {}
       }
     },
-    // Data props
+    $save(sync) {
+      let ref = this.$save
+      clearTimeout(ref.timer)
+      ref.fn ||= () => { data && fs.writeFileSync(dataPath, JSON.stringify(data)) }
+      sync ? ref.fn() : (ref.timer = setTimeout(ref.fn, 2000))
+    }
+  }
+  let dataConfig = {
     priceSource: {
-      enumerable: true,
-      get() { return this.$get('priceSource') || config.priceSourceList[0].uniqueCode },
-      set(val) {
-        let pricePrecision = config.priceSourceList.find(v => v.uniqueCode === val)?.precision ?? 2
-        appWindow.webContents.send('config-change', { priceSource: val, pricePrecision })
-        this.$set('priceSource', val)
+      default: config.priceSourceList[0].uniqueCode,
+      enums: config.priceSourceList.map(v => v.uniqueCode),
+      beforeSet(val) {
+        let pricePrecision = config.priceSourceList.find(v => v.uniqueCode === val).precision
+        appWindow.webContents.send('setting-change', { priceSource: val, pricePrecision })
       }
     },
     pricePrecision: {
-      enumerable: true,
+      writable: false,
       get() {
         let { priceSource } = this
-        return config.priceSourceList.find(v => v.uniqueCode === priceSource)?.precision ?? 2
+        return config.priceSourceList.find(v => v.uniqueCode === priceSource).precision
       }
     },
     refreshRate: {
-      enumerable: true,
-      get() { return this.$get('refreshRate') ?? config.refreshRateList.find(v => v.default).time },
-      set(val) { appWindow.webContents.send('config-change', { refreshRate: val }), this.$set('refreshRate', val) }
+      default: config.refreshRateList.find(v => v.default).value,
+      enums: config.refreshRateList.map(v => v.value),
+      beforeSet(val) {
+        appWindow.webContents.send('setting-change', { refreshRate: val })
+      }
+    },
+    themeStyle: {
+      default: config.themeStyleList.find(v => v.default).value,
+      enums: config.themeStyleList.map(v => v.value),
+      beforeSet(val) {
+        nativeTheme.themeSource = val
+        appWindow.webContents.send('setting-change', { themeStyle: val })
+      }
     },
     showPriceRaise: {
-      enumerable: true,
-      get() { return this.$get('showPriceRaise') ?? true },
-      set(val) { appWindow.webContents.send('config-change', { showPriceRaise: val }), this.$set('showPriceRaise', val) }
+      type: 'boolean',
+      default: true,
+      beforeSet(val) {
+        appWindow.webContents.send('setting-change', { showPriceRaise: val })
+      }
     },
     clickPenetrate: {
-      enumerable: true,
-      get() { return this.$get('clickPenetrate') || false },
-      set(val) { appWindow.setIgnoreMouseEvents(val), this.$set('clickPenetrate', val) }
+      type: 'boolean',
+      default: false,
+      beforeSet(val) {
+        appWindow.setIgnoreMouseEvents(val)
+      }
+    },
+    position: {
+      type: Array,
+      enumerable: false
     }
-  })
+  }
+
+  for (let key in dataConfig) {
+    let { get, set, configurable = false, enumerable = true, writable = true } = dataConfig[key]
+    if (typeof get != 'function') get = get === false ? void 0 : function () { return this.$get(key) }
+    if (typeof set != 'function') set = set === false || !writable ? void 0 : function (val) { this.$set(key, val) }
+    dataDesc[key] = { configurable, enumerable, get, set }
+  }
+
+  setting = Object.create(dataProto, dataDesc)
 }
 
 const createWindow = () => {
   Menu.setApplicationMenu(null)
 
   appWindow = new BrowserWindow({
-    width: 52,
-    height: 28,
+    width: 52 + 12,
+    height: 28 + 12,
     x: 0,
-    y: screen.getPrimaryDisplay().workAreaSize.height - 40 - 28,
+    y: screen.getPrimaryDisplay().workAreaSize.height - 40 - (28 + 12),
     frame: false,
-    focusable: false,
+    focusable: true,
     resizable: false,
     hasShadow: false,
     thickFrame: false,
@@ -105,14 +147,16 @@ const createWindow = () => {
     }
   })
 
-  appWindow.loadFile(path.join(__dirname, 'index.html'))
+  nativeTheme.themeSource = setting.themeStyle
 
   appWindow.setIgnoreMouseEvents(setting.clickPenetrate)
+
+  appWindow.loadFile(path.join(__dirname, 'index.html'))
 
   cssDragEnable && appWindow.hookWindowMessage && appWindow.hookWindowMessage(278, () => {
     appWindow.setEnabled(false)
     setTimeout(() => appWindow.setEnabled(true), 100)
-    createMenu().popup({ window: appWindow })
+    createMenu({ popup: true })
   })
 
   appWindow.on('show', () => {
@@ -124,25 +168,25 @@ const createWindow = () => {
   })
 
   appWindow.on('moved', () => {
-    setting.$set('position', appWindow.getPosition())
+    setting.position = appWindow.getPosition()
   })
 
   appWindow.once('ready-to-show', () => {
-    let rawPos = setting.$get('position')
+    let rawPos = setting.position
     if (rawPos && rawPos.length == 2) {
       let size = appWindow.getSize(), areaSize = screen.getPrimaryDisplay().workAreaSize
       let x = Math.max(0, Math.min(areaSize.width - size[0], rawPos[0] || 0))
       let y = Math.max(0, Math.min(areaSize.height - size[1], rawPos[1] || 0))
       appWindow.setPosition(x, y)
-      if (x !== rawPos[0] || y !== rawPos[1]) setting.$set('position', [x, y])
+      if (x !== rawPos[0] || y !== rawPos[1]) setting.position = [x, y]
     }
 
-    cssDragEnable || appWindow.webContents.on('context-menu', () => {
-      createMenu().popup({ window: appWindow })
+    cssDragEnable || appWindow.webContents.on('context-menu', (event) => {
+      event.preventDefault()
+      createMenu({ popup: true })
     })
 
-    let configKeys = ['priceSource', 'pricePrecision', 'refreshRate', 'showPriceRaise']
-    appWindow.webContents.send('config-change', configKeys.reduce((o, k) => (o[k] = setting[k], o), {}))
+    appWindow.webContents.send('setting-change', { ...setting })
     appWindow.webContents.send('visible-change', appWindow.isVisible())
   })
 
@@ -172,24 +216,24 @@ const createWindow = () => {
   })
 
   if (!cssDragEnable) {
-    let x, y, wX, wY, mX, mY, interval
+    let pos, wX, wY, mX, mY, interval, delay = 16
     ipcMain.on('set-drag-state', (event, res) => {
       clearInterval(interval)
       if (res) {
         ;([wX, wY] = appWindow.getPosition(), { x: mX, y: mY } = screen.getCursorScreenPoint())
         interval = setInterval(() => {
           let { x: cX, y: cY } = screen.getCursorScreenPoint()
-          let uX = wX + cX - mX, uY = wY + cY - mY
-          if (x != uX || y != uY) x = uX, y = uY, appWindow.setPosition(x, y, true)
-        }, 16)
-      } else if (x != null && y != null) {
-        if (x != wX || y != wY) setting.$set('position', [x, y])
-        x = y = wX = wY = mX = mY = interval = void 0
+          let uPos = [wX + cX - mX, wY + cY - mY]
+          if (!pos || pos[0] != uPos[0] || pos[1] != uPos[1]) pos = uPos, appWindow.setPosition(pos[0], pos[1], true)
+        }, delay)
+      } else if (pos) {
+        if (pos[0] != wX || pos[1] != wY) setting.position = pos
+        pos = wX = wY = mX = mY = interval = void 0
       }
     })
   }
 
-  debugEnable && appWindow.webContents.openDevTools({ mode: 'detach' })
+  if (debugEnable) appWindow.webContents.openDevTools({ mode: 'detach' })
 }
 
 const createTray = () => {
@@ -213,9 +257,14 @@ const createTray = () => {
   })
 }
 
-const createMenu = () => {
-  let { priceSource, refreshRate } = setting
-  return Menu.buildFromTemplate([
+const createMenu = (options) => {
+  let { popup = false, inWindow = true } = options || {}
+  if (popup && inWindow) {
+    let size = appWindow.getSize(), wPos = appWindow.getPosition(), mPos = screen.getCursorScreenPoint()
+    if (!(mPos.x >= wPos[0] && mPos.x <= wPos[0] + size[0] && mPos.y >= wPos[1] && mPos.y <= wPos[1] + size[1])) return
+  }
+  let { priceSource, refreshRate, themeStyle } = setting
+  let menu = Menu.buildFromTemplate([
     appWindow.isVisible()
       ? { label: '隐藏', click() { appWindow.hide() } }
       : { label: '显示', click() { appWindow.show() } },
@@ -228,8 +277,12 @@ const createMenu = () => {
       { label: '查看更多', click() { shell.openExternal(config.sourceDetailUrl) } }
     ] },
     { label: '刷新频率', submenu: config.refreshRateList.map(item => ({
-      type: 'checkbox', label: item.name, checked: refreshRate === item.time,
-      click() { setting.refreshRate = item.time }
+      type: 'checkbox', label: item.name, checked: refreshRate === item.value,
+      click() { setting.refreshRate = item.value }
+    })) },
+    { label: '主题样式', submenu: config.themeStyleList.map(item => ({
+      type: 'checkbox', label: item.name, checked: themeStyle === item.value,
+      click() { setting.themeStyle = item.value }
     })) },
     { label: '显示增减', type: 'checkbox', checked: setting.showPriceRaise,
       click() { setting.showPriceRaise = !setting.showPriceRaise }
@@ -242,6 +295,12 @@ const createMenu = () => {
     },
     { label: '退出', role: 'quit' }
   ])
+  if (popup) {
+    let focusable = appWindow.isFocusable()
+    if (!focusable) appWindow.setFocusable(true), appWindow.setSkipTaskbar(true), appWindow.focus()
+    menu.popup({ window: appWindow, callback: focusable ? void 0 : () => appWindow.setFocusable(false) })
+  }
+  return menu
 }
 
 const getPriceInfo = (options) => {

@@ -8,6 +8,6 @@ contextBridge.exposeInMainWorld('apiBridge', {
   setDragState: (data) => ipcRenderer.send('set-drag-state', data),
   setContentSize: (data) => ipcRenderer.send('set-content-size', data),
   onGetPriceData: (callback) => ipcRenderer.on('get-price-data', callback),
-  onVisibleChange: (callback) => ipcRenderer.on('visible-change', callback),
-  onConfigChange: (callback) => ipcRenderer.on('config-change', callback)
+  onSettingChange: (callback) => ipcRenderer.on('setting-change', callback),
+  onVisibleChange: (callback) => ipcRenderer.on('visible-change', callback)
 })
