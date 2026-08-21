@@ -3,13 +3,23 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, screen, shell, ipcMain, nativeTheme, BrowserWindow, Menu, Tray } from 'electron'
 import startup from 'electron-squirrel-startup'
+import { getGoldPrice } from './api.js'
 import config from './config.js'
 
 if (startup) app.quit()
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const debugEnable = false, cssDragEnable = false
-let appWindow, appTray, setting, priceData = null, priceDataChangeTicks = []
+const DIRNAME = path.dirname(fileURLToPath(import.meta.url))
+const DEBUG_ENABLE = process.env.DEBUG_ENABLE === 'true'
+
+let appWindow, appTray, setting, showDeviceScaleOption
+let wrapMargin = 6, lastContentSize = [60, 40], lastPriceData = null
+
+const priceSourceFlatList = (
+  (function _flat(res, list) {
+    for (let item of list) item.children ? _flat(res, item.children) : res.push(item)
+    return res
+  })([], config.priceSourceList)
+)
 
 const initSetting = () => {
   let data = null
@@ -23,11 +33,12 @@ const initSetting = () => {
     $set(key, value) {
       if (key != null) {
         data || this.$init()
-        let { default: defVal, writable = true, checkable = true, beforeSet } = dataConfig[key] || {}
+        let { default: defVal, writable = true, checkable = true, beforeSet, afterSet } = dataConfig[key] || {}
         if (!writable || checkable && !this.$check(key, value)) return
         if (value === void 0) value = typeof defVal == 'function' ? defVal.call(this) : defVal
         if (typeof beforeSet == 'function' && beforeSet.call(this, value) === false) return
-        if (data[key] !== value) data[key] = value, this.$save()
+        if (JSON.stringify(data[key]) !== JSON.stringify(value)) data[key] = value, this.$save()
+        if (typeof afterSet == 'function') afterSet.call(this, value)
       } else if (value != null) {
         this.$init(value)
         this.$save()
@@ -36,11 +47,7 @@ const initSetting = () => {
     $check(key, value) {
       if (key == null) return false
       let { type, enums } = dataConfig[key] || {}
-      if (type != null && !Array.isArray(type)) type = [type]
-      return (
-        (!type || value !== null && type.some(v => typeof v == 'string' ? typeof value === v : value instanceof v)) &&
-        (!enums || enums.includes(value))
-      )
+      return (!type || [].concat(type).includes(Object.prototype.toString.call(value).slice(8, -1))) && (!enums || enums.includes(value))
     },
     $init(map) {
       try {
@@ -64,10 +71,10 @@ const initSetting = () => {
   }
   let dataConfig = {
     priceSource: {
-      default: config.priceSourceList[0].uniqueCode,
-      enums: config.priceSourceList.map(v => v.uniqueCode),
+      enums: priceSourceFlatList.map(v => v.uniqueCode),
+      default: priceSourceFlatList[0].uniqueCode,
       beforeSet(val) {
-        let pricePrecision = config.priceSourceList.find(v => v.uniqueCode === val).precision
+        let pricePrecision = priceSourceFlatList.find(v => v.uniqueCode === val).precision
         appWindow.webContents.send('setting-change', { priceSource: val, pricePrecision })
       }
     },
@@ -75,40 +82,64 @@ const initSetting = () => {
       writable: false,
       get() {
         let { priceSource } = this
-        return config.priceSourceList.find(v => v.uniqueCode === priceSource).precision
+        return priceSourceFlatList.find(v => v.uniqueCode === priceSource).precision
       }
     },
     refreshRate: {
-      default: config.refreshRateList.find(v => v.default).value,
       enums: config.refreshRateList.map(v => v.value),
+      default: config.refreshRateList.find(v => v.default).value,
       beforeSet(val) {
         appWindow.webContents.send('setting-change', { refreshRate: val })
       }
     },
     themeStyle: {
-      default: config.themeStyleList.find(v => v.default).value,
       enums: config.themeStyleList.map(v => v.value),
+      default: config.themeStyleList.find(v => v.default).value,
       beforeSet(val) {
-        nativeTheme.themeSource = val
         appWindow.webContents.send('setting-change', { themeStyle: val })
+      },
+      afterSet() {
+        nativeTheme.themeSource = this.themeNative
+      }
+    },
+    themeNative: {
+      writable: false,
+      get() {
+        let { themeStyle } = this
+        return config.themeStyleList.find(v => v.value === themeStyle).native || 'system'
+      }
+    },
+    fontSize: {
+      enums: config.fontSizeList.map(v => v.value),
+      default: config.fontSizeList.find(v => v.default).value,
+      beforeSet(val) {
+        appWindow.webContents.send('setting-change', { fontSize: val })
       }
     },
     showPriceRaise: {
-      type: 'boolean',
+      type: 'Boolean',
       default: true,
       beforeSet(val) {
         appWindow.webContents.send('setting-change', { showPriceRaise: val })
       }
     },
-    clickPenetrate: {
-      type: 'boolean',
-      default: false,
+    showPriceFlash: {
+      type: 'Boolean',
+      default: true,
       beforeSet(val) {
-        appWindow.setIgnoreMouseEvents(val)
+        appWindow.webContents.send('setting-change', { showPriceFlash: val })
+      }
+    },
+    disableDeviceScale: {
+      type: 'Boolean',
+      default: false,
+      afterSet(val) {
+        let set = app.commandLine.getSwitchValue('force-device-scale-factor') == 1 ? (val ? null : false) : (val ? true : null)
+        if (set != null) app.relaunch(), app.quit()
       }
     },
     position: {
-      type: Array,
+      type: 'Object',
       enumerable: false
     }
   }
@@ -121,16 +152,20 @@ const initSetting = () => {
   }
 
   setting = Object.create(dataProto, dataDesc)
+
+  if (setting.disableDeviceScale) app.commandLine.appendSwitch('force-device-scale-factor', '1')
 }
 
 const createWindow = () => {
   Menu.setApplicationMenu(null)
 
+  let display = screen.getPrimaryDisplay()
+
   appWindow = new BrowserWindow({
-    width: 52 + 12,
-    height: 28 + 12,
-    x: 0,
-    y: screen.getPrimaryDisplay().workAreaSize.height - 40 - (28 + 12),
+    width: lastContentSize[0],
+    height: lastContentSize[1],
+    x: display.workArea.x,
+    y: display.workArea.y,
     frame: false,
     focusable: true,
     resizable: false,
@@ -142,22 +177,16 @@ const createWindow = () => {
     titleBarStyle: 'hidden',
     backgroundColor: '#0000',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(DIRNAME, 'preload.js'),
       sandbox: true
     }
   })
 
-  nativeTheme.themeSource = setting.themeStyle
+  showDeviceScaleOption = setting.disableDeviceScale || display.scaleFactor != 1
 
-  appWindow.setIgnoreMouseEvents(setting.clickPenetrate)
+  nativeTheme.themeSource = setting.themeNative
 
-  appWindow.loadFile(path.join(__dirname, 'index.html'))
-
-  cssDragEnable && appWindow.hookWindowMessage && appWindow.hookWindowMessage(278, () => {
-    appWindow.setEnabled(false)
-    setTimeout(() => appWindow.setEnabled(true), 100)
-    createMenu({ popup: true })
-  })
+  appWindow.loadFile(path.join(DIRNAME, 'index.html'))
 
   appWindow.on('show', () => {
     appWindow.webContents.send('visible-change', true)
@@ -168,113 +197,113 @@ const createWindow = () => {
   })
 
   appWindow.on('moved', () => {
-    setting.position = appWindow.getPosition()
+    let [x, y] = appWindow.getPosition(), { dpi = screen.getPrimaryDisplay().scaleFactor } = setting.position || {}
+    setting.position = { x, y, dpi }
   })
 
   appWindow.once('ready-to-show', () => {
-    let rawPos = setting.position
-    if (rawPos && rawPos.length == 2) {
-      let size = appWindow.getSize(), areaSize = screen.getPrimaryDisplay().workAreaSize
-      let x = Math.max(0, Math.min(areaSize.width - size[0], rawPos[0] || 0))
-      let y = Math.max(0, Math.min(areaSize.height - size[1], rawPos[1] || 0))
-      appWindow.setPosition(x, y)
-      if (x !== rawPos[0] || y !== rawPos[1]) setting.position = [x, y]
-    }
-
-    cssDragEnable || appWindow.webContents.on('context-menu', (event) => {
+    appWindow.isReady = true
+    appWindow.webContents.on('context-menu', (event) => {
       event.preventDefault()
-      createMenu({ popup: true })
+      createMenu({ popup: true, popupCallback: () => { appWindow.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', x: 0, y: 0 }) } })
     })
-
-    appWindow.webContents.send('setting-change', { ...setting })
-    appWindow.webContents.send('visible-change', appWindow.isVisible())
+    initPosition(setting.position || { x: 'left', y: 'bottom' })
   })
 
   ipcMain.handle('is-visible', () => {
     return appWindow.isVisible()
   })
 
-  ipcMain.handle('is-use-css-drag', () => {
-    return cssDragEnable
+  ipcMain.handle('is-point-hover', (event, res) => {
+    let { resetWhen } = res || {}, hover = isPonitHover()
+    if (hover === resetWhen) appWindow.setEnabled(false), setTimeout(() => appWindow.setEnabled(true), 100)
+    return hover
+  })
+
+  ipcMain.handle('get-price-data', (event, res) => {
+    return getPriceData(res)
   })
 
   ipcMain.handle('get-price-info', (event, res) => {
     return getPriceInfo(res)
   })
 
-  ipcMain.on('set-price-data', (event, res) => {
-    priceData = res || null
-    if (priceDataChangeTicks.length) {
-      priceDataChangeTicks.forEach(e => e(priceData))
-      priceDataChangeTicks.splice(0, Infinity)
-    }
+  ipcMain.on('web-init-handle', () => {
+    appWindow.webContents.send('setting-change', { ...setting })
+    appWindow.webContents.send('visible-change', appWindow.isVisible())
   })
 
   ipcMain.on('set-content-size', (event, res) => {
-    let size = appWindow.getSize()
-    appWindow.setContentSize(res.width || size[0], res.height || size[1])
+    let [lw, lh] = lastContentSize, { width = lw, height = lh } = res
+    if (width === lw && height === lh) return
+    appWindow.setContentSize(width, height), lastContentSize = [width, height]
+    appWindow.isReady && initPosition(setting.position)
   })
 
-  if (!cssDragEnable) {
-    let pos, wX, wY, mX, mY, interval, delay = 16
-    ipcMain.on('set-drag-state', (event, res) => {
+  ipcMain.on('set-penetrate', (event, res) => {
+    let { valid, forward = !!valid } = typeof res == 'object' && res || { valid: res }
+    appWindow.setIgnoreMouseEvents(valid, { forward })
+  })
+
+  ;{
+    let bS, bP, mP, tP, area, dpi, interval, delay = 16
+    ipcMain.on('set-drag-state', function setDragState(event, res) {
       clearInterval(interval)
       if (res) {
-        ;([wX, wY] = appWindow.getPosition(), { x: mX, y: mY } = screen.getCursorScreenPoint())
+        ;({ workArea: area, scaleFactor: dpi } = screen.getPrimaryDisplay())
+        bS = lastContentSize.concat()
+        bP = appWindow.getPosition()
+        mP = screen.getCursorScreenPoint()
         interval = setInterval(() => {
-          let { x: cX, y: cY } = screen.getCursorScreenPoint()
-          let uPos = [wX + cX - mX, wY + cY - mY]
-          if (!pos || pos[0] != uPos[0] || pos[1] != uPos[1]) pos = uPos, appWindow.setPosition(pos[0], pos[1], true)
+          let cP = screen.getCursorScreenPoint(), uP = { x: bP[0] + cP.x - mP.x, y: bP[1] + cP.y - mP.y }
+          if (tP && tP.x == uP.x && tP.y == uP.y) return
+          tP = uP, appWindow.setContentBounds({ x: tP.x, y: tP.y, width: bS[0], height: bS[1] }, true)
+          if (!(cP.x >= tP.x && cP.x <= tP.x + bS[0] && cP.y >= tP.y && cP.y <= tP.y + bS[1])) setDragState(null, false)
         }, delay)
-      } else if (pos) {
-        if (pos[0] != wX || pos[1] != wY) setting.position = pos
-        pos = wX = wY = mX = mY = interval = void 0
+      } else if (tP) {
+        bS = bP = mP = tP = dpi = interval = void 0, initPosition()
       }
     })
   }
 
-  if (debugEnable) appWindow.webContents.openDevTools({ mode: 'detach' })
+  if (DEBUG_ENABLE) appWindow.webContents.openDevTools({ mode: 'detach' })
 }
 
 const createTray = () => {
-  appTray = new Tray(path.join(__dirname, 'assets/icon.ico'))
+  appTray = new Tray(path.join(DIRNAME, 'assets/icon.ico'))
 
   appTray.on('click', () => {
     appWindow.isVisible() || appWindow.show()
   })
 
   appTray.on('right-click', () => {
-    appTray.popUpContextMenu(createMenu())
+    appTray.popUpContextMenu(createMenu({ isTray: true }))
   })
 
-  let setToolTip = (data) => {
+  appTray.on('mouse-enter', async () => {
+    let data = lastPriceData || await getPriceData().catch(() => null)
     let text = getPriceInfo({ type: 'text', data })
     appTray.setToolTip(`- 金价实时监控 -${text ? `\n${text}` : ''}`)
-  }
-  appTray.on('mouse-enter', () => {
-    priceDataChangeTicks.push(setToolTip)
-    appWindow.webContents.send('get-price-data')
   })
 }
 
 const createMenu = (options) => {
-  let { popup = false, inWindow = true } = options || {}
-  if (popup && inWindow) {
-    let size = appWindow.getSize(), wPos = appWindow.getPosition(), mPos = screen.getCursorScreenPoint()
-    if (!(mPos.x >= wPos[0] && mPos.x <= wPos[0] + size[0] && mPos.y >= wPos[1] && mPos.y <= wPos[1] + size[1])) return
-  }
-  let { priceSource, refreshRate, themeStyle } = setting
+  let { popup = false, isTray = false, inWindow = true, popupCallback } = options || {}
+  if (popup && inWindow && !isPonitHover()) return
+  let { priceSource, refreshRate, themeStyle, fontSize } = setting, isOpenAtLogin
   let menu = Menu.buildFromTemplate([
-    appWindow.isVisible()
-      ? { label: '隐藏', click() { appWindow.hide() } }
-      : { label: '显示', click() { appWindow.show() } },
     { label: '价格来源', submenu: [
-      ...config.priceSourceList.map(item => ({
-        type: 'checkbox', label: item.name, checked: priceSource === item.uniqueCode,
-        click() { setting.priceSource = item.uniqueCode }
-      })),
+      ...(function _flat(res, list) {
+        for (let item of list) res.push(item.children
+          ? { label: item.name, submenu: _flat([], item.children) }
+          : {
+            type: 'checkbox', label: item.name, checked: priceSource === item.uniqueCode,
+            click() { setting.priceSource = item.uniqueCode }
+          })
+        return res
+      })([], config.priceSourceList),
       { type: 'separator' },
-      { label: '查看更多', click() { shell.openExternal(config.sourceDetailUrl) } }
+      { label: '查看更多', click() { shell.openExternal(config.priceSourceUrl) } }
     ] },
     { label: '刷新频率', submenu: config.refreshRateList.map(item => ({
       type: 'checkbox', label: item.name, checked: refreshRate === item.value,
@@ -284,32 +313,99 @@ const createMenu = (options) => {
       type: 'checkbox', label: item.name, checked: themeStyle === item.value,
       click() { setting.themeStyle = item.value }
     })) },
-    { label: '显示增减', type: 'checkbox', checked: setting.showPriceRaise,
+    { label: '字体大小', submenu: [
+        ...config.fontSizeList.map(item => ({
+          type: 'checkbox', label: item.name, checked: fontSize === item.value,
+          click() { setting.fontSize = item.value }
+        })),
+        ...showDeviceScaleOption ? [
+          { type: 'separator' },
+          { label: '禁用布局缩放', type: 'checkbox', checked: setting.disableDeviceScale,
+            toolTip: '禁用后应用将按照100%的布局缩放大小显示',
+            click() { setting.disableDeviceScale = !setting.disableDeviceScale }
+          }
+        ] : []
+      ]
+    },
+    { label: '显示涨跌', type: 'checkbox', checked: setting.showPriceRaise,
       click() { setting.showPriceRaise = !setting.showPriceRaise }
     },
-    { label: '点击穿透', type: 'checkbox', checked: setting.clickPenetrate,
-      click() { setting.clickPenetrate = !setting.clickPenetrate }
+    { label: '浮动闪烁', type: 'checkbox', checked: setting.showPriceFlash,
+      click() { setting.showPriceFlash = !setting.showPriceFlash }
     },
-    { label: '开机自启', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
-      click() { app.setLoginItemSettings({ openAtLogin: !app.getLoginItemSettings().openAtLogin }) }
-    },
+    ...isTray ? [
+      { label: '开机自启', type: 'checkbox', checked: (isOpenAtLogin = app.getLoginItemSettings().openAtLogin),
+        click() { app.setLoginItemSettings({ openAtLogin: !isOpenAtLogin }) }
+      },
+      { label: '关于', submenu: [
+        { label: '项目主页', click() { shell.openExternal(config.homepageUrl) } },
+        { label: '版本更新', click() { shell.openExternal(config.releasesUrl) } }
+      ]
+    }] : [],
+    appWindow.isVisible()
+      ? { label: '隐藏', click() { appWindow.hide() } }
+      : { label: '显示', click() { appWindow.show() } },
     { label: '退出', role: 'quit' }
   ])
   if (popup) {
-    let focusable = appWindow.isFocusable()
-    if (!focusable) appWindow.setFocusable(true), appWindow.setSkipTaskbar(true), appWindow.focus()
-    menu.popup({ window: appWindow, callback: focusable ? void 0 : () => appWindow.setFocusable(false) })
+    if (!appWindow.isFocusable()) {
+      let cb = popupCallback
+      popupCallback = () => { appWindow.setFocusable(false), cb && cb() }
+      appWindow.setFocusable(true), appWindow.setSkipTaskbar(true), appWindow.focus()
+    }
+    menu.popup({ window: appWindow, callback: popupCallback })
   }
   return menu
 }
 
+const initPosition = (options) => {
+  let { x, y, dpi } = options || {}, bounds = appWindow.getBounds(), { workArea, scaleFactor } = screen.getPrimaryDisplay()
+  let useDpi = isFinite(dpi) ? dpi : scaleFactor
+  let realX = isFinite(x) ? x * (useDpi / scaleFactor) : bounds.x
+  let realY = isFinite(y) ? y * (useDpi / scaleFactor) : bounds.y
+  let minX = workArea.x - wrapMargin, maxX = workArea.x + workArea.width - bounds.width + wrapMargin
+  let minY = workArea.y - wrapMargin, maxY = workArea.y + workArea.height - bounds.height + wrapMargin
+  let varX = '', useX = Math.floor(
+    x == 'left' || x == 'fixed-left' ? (varX = x, minX) :
+    x == 'right' || x == 'fixed-right' ? (varX = x, maxX) :
+    realX <= minX - Math.min(32 + wrapMargin, bounds.width / 2) ? (varX = 'fixed-left', minX) :
+    realX >= maxX + Math.min(32 + wrapMargin, bounds.width / 2) ? (varX = 'fixed-right', maxX) :
+    realX <= minX ? (varX = 'left', minX) :
+    realX >= maxX ? (varX = 'right', maxX) :
+    Math.max(minX, Math.min(maxX, realX))
+  )
+  let varY = '', useY = Math.floor(
+    y == 'top' || y == 'fixed-top' ? (varY = y, minY) :
+    y == 'bottom' || y == 'fixed-bottom' ? (varY = y, maxY) :
+    realY <= minY - Math.min(32 + wrapMargin, bounds.height / 2) ? (varY = 'fixed-top', minY) :
+    realY >= maxY + Math.min(32 + wrapMargin, bounds.height / 2) ? (varY = 'fixed-bottom', maxY) :
+    realY <= minY ? (varY = 'top', minY) :
+    realY >= maxY ? (varY = 'bottom', maxY) :
+    Math.max(minY, Math.min(maxY, realY))
+  )
+  if (useX !== bounds.x || useY !== bounds.y) appWindow.setPosition(useX, useY)
+  setting.position = { x: varX || useX, y: varY || useY, dpi: useDpi }
+  let fixedType = (varX.includes('fixed') ? varX : varY.includes('fixed') ? varY : '').slice(6)
+  if (fixedType) appWindow.webContents.send('fixed-change', fixedType)
+}
+
+const isPonitHover = () => {
+  let b = appWindow.getBounds(), p = screen.getCursorScreenPoint()
+  return p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height
+}
+
+const getPriceData = async () => {
+  let res = await getGoldPrice(setting.priceSource)
+  return (lastPriceData = res && (res.data || res.datas) || null)
+}
+
 const getPriceInfo = (options) => {
-  let { type = 'list', data = priceData } = options || {}; data ||= {}
+  let { type = 'list', data = lastPriceData } = options || {}; data ||= {}
   let { priceSource, pricePrecision: pc } = setting
   let res = [
-    { label: '当前来源', value: data.name || config.priceSourceList.find(v => v.uniqueCode === priceSource)?.name || '' },
+    { label: '当前来源', value: data.name || priceSourceFlatList.find(v => v.uniqueCode === priceSource)?.name || '' },
     { label: '当前价格', value: data.lastPrice != null ? (+data.lastPrice).toFixed(pc) : '' },
-    { label: '价格增减', value: [
+    { label: '当日涨跌幅', value: [
         data.raise != null ? `${data.raise > 0 ? '+' : ''}${(+data.raise).toFixed(pc)}` : '',
         data.raisePercent != null ? `${data.raisePercent > 0 ? '+' : ''}${(+data.raisePercent * 100).toFixed(2)}%` : ''
       ].filter(Boolean).join('  ')
@@ -329,14 +425,15 @@ const getPriceInfo = (options) => {
   return res
 }
 
+initSetting()
+
 app.whenReady().then(() => {
-  initSetting()
   createWindow()
   createTray()
 })
 
 app.on('before-quit', () => {
-  setting && setting.$save(true)
+  setting?.$save(true)
 })
 
 app.on('window-all-closed', () => {

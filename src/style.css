@@ -1,0 +1,106 @@
+html {
+  font: 12px / 1.5 sans-serif;
+  pointer-events: none;
+  --bg-color: #333e;
+  --value-color: #bbb;
+  --raise-color: #999;
+  --shadow-color: #3335;
+  --up-color: #f04242;
+  --down-color: #2ed12e;
+}
+html.theme-light {
+  --bg-color: #fcfcfcee;
+  --value-color: #222;
+  --raise-color: #666;
+  --shadow-color: #3455;
+  --up-color: #f20d0d;
+  --down-color: #14b814;
+}
+html.theme-black {
+  --bg-color: #161a22ed;
+  --value-color: #f1f2f3;
+  --raise-color: #abc;
+  --shadow-color: #161a2255;
+  --up-color: #f04242;
+  --down-color: #2ed12e;
+}
+body {
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+  user-select: none;
+  pointer-events: none;
+}
+#app {
+  display: contents;
+  pointer-events: auto;
+}
+.price {
+  width: fit-content;
+  height: fit-content;
+  min-width: 3.45rem; /* min-height * 1.5 */
+  min-height: 2.3rem; /* line-height + padding-top + padding-bottom */
+  padding: 0.4rem 0.75rem;
+  margin: 6px;
+  border-radius: 6px;
+  box-shadow: 0 1px 6px var(--shadow-color);
+  line-height: 1.5rem;
+  color: var(--value-color);
+  background: var(--bg-color);
+  box-sizing: border-box;
+  white-space: nowrap;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.3s, color 0.3s, box-shadow 0.3s, transform 0.4s;
+  transition-timing-function: ease;
+}
+html.is-moving .price {
+  cursor: move;
+}
+html.is-fixed-left .price:not(.is-hover) {
+  transform: translateX(calc(-100% + 8px));
+  transition-delay: 0.5s;
+}
+html.is-fixed-right .price:not(.is-hover) {
+  transform: translateX(calc(100% - 8px));
+  transition-delay: 0.5s;
+}
+html.is-fixed-top .price:not(.is-hover) {
+  transform: translateY(calc(-100% + 8px));
+  transition-delay: 0.5s;
+}
+html.is-fixed-bottom .price:not(.is-hover) {
+  transform: translateY(calc(100% - 8px));
+  transition-delay: 0.5s;
+}
+.price > *:empty {
+  display: none;
+}
+.price > *:not(:empty) + *:not(:empty) {
+  margin-left: 0.5rem;
+}
+.price-value.is-up {
+  animation: price-value-up 1.2s ease-out 1;
+}
+.price-value.is-down {
+  animation: price-value-down 1.2s ease-out 1;
+}
+.price-raise {
+  font-size: 0.875rem;
+  color: var(--raise-color);
+  transition: 0.3s color ease;
+}
+.price-raise.is-up {
+  color: var(--up-color);
+}
+.price-raise.is-down {
+  color: var(--down-color);
+}
+@keyframes price-value-up {
+  0% { color: var(--up-color); }
+}
+@keyframes price-value-down {
+  0% { color: var(--down-color); }
+}

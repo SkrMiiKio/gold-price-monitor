@@ -1,167 +1,18 @@
 <!DOCTYPE html>
-<html>
+<html hidden>
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self';">
     <title>Gold Price Monitor</title>
-    <style>
-      body {
-        height: 100vh;
-        margin: 0;
-        overflow: hidden;
-        user-select: none;
-      }
-      #app {
-        width: 100%;
-        height: 100%;
-      }
-      .price {
-        width: calc(100% - 12px);
-        height: calc(100% - 12px);
-        margin: 6px;
-        border-radius: 6px;
-        box-shadow: 0 1px 6px #3452;
-        line-height: calc(100vh - 12px);
-        font-size: 12px;
-        font-family: sans-serif;
-        color: var(--text-color);
-        background: var(--bg-color);
-        text-align: center;
-        white-space: nowrap;
-        overflow: hidden;
-        --bg-color: #333e;
-        --text-color: #bbb;
-        --raise-color: #999;
-        --raise-up-color: #f04242;
-        --raise-down-color: #2ed12e;
-      }
-      body.theme-light .price {
-        --bg-color: #fcfcfcee;
-        --text-color: #222;
-        --raise-color: #666;
-        --raise-up-color: #f20d0d;
-        --raise-down-color: #14b814;
-      }
-      .price > span {
-        padding: 0 0.4em;
-      }
-      .price-raise {
-        margin-left: 0.5em;
-        font-size: 11px;
-        color: var(--raise-color);
-      }
-      .price-raise:empty {
-        display: none;
-      }
-      .price-raise.is-up {
-        color: var(--raise-up-color);
-      }
-      .price-raise.is-down {
-        color: var(--raise-down-color);
-      }
-    </style>
+    <link rel="stylesheet" href="style.css">
   </head>
   <body>
     <div id="app">
       <div class="price">
-        <span>0.00<span class="price-raise"></span></span>
+        <span class="price-value">loading</span>
+        <span class="price-raise"></span>
       </div>
     </div>
-
-    <script type="module">
-      import { getGoldPrice } from './api.js'
-
-      let lastData = null, lastInfo = null, lastWidth = null, loop = false, time, timer
-
-      const setting = {}, settingWatch = {
-        themeStyle: {
-          default: 'dark',
-          immediate: true,
-          handler(val, oval) {
-            let { classList } = document.body
-            oval && classList.remove(`theme-${oval}`)
-            val && classList.add(`theme-${val}`)
-          }
-        },
-        showPriceRaise: {
-          default: true,
-          handler(val) {
-            if (!val && raiseDom.innerText) raiseDom.innerText = '', updateContentSize()
-          }
-        }
-      }
-      const { apiBridge } = window
-      const priceDom = document.querySelector('#app > .price')
-      const wrapDom = priceDom.firstElementChild, [textNode, raiseDom] = wrapDom.childNodes
-
-      const getPrice = async (sign) => {
-        clearTimeout(timer)
-        if (sign != null) loop = !!sign
-        if (sign == false || !setting.priceSource) return
-        let curTime = time = Date.now()
-        let res = await getGoldPrice(setting.priceSource).catch(e => e)
-        if (curTime !== time) return
-        let { pricePrecision = 2, refreshRate = 0, showPriceRaise = true } = setting
-        lastData = res.data || res.datas || null, res = lastData || {}
-        textNode.textContent = (+res.lastPrice || 0).toFixed(pricePrecision)
-        raiseDom.className = `price-raise${res.raisePercent > 0 ? ' is-up' : res.raisePercent < 0 ? ' is-down' : ''}`
-        raiseDom.innerText = !showPriceRaise ? '' : `${res.raisePercent > 0 ? '+' : ''}${(res.raisePercent * 100 || 0).toFixed(2)}%`
-        updateContentSize()
-        if (loop && refreshRate > 0) timer = setTimeout(getPrice, Math.max(0, refreshRate - (Date.now() - curTime)))
-      }
-
-      const updateContentSize = () => {
-        let wrapWidth = Math.max(40, wrapDom.offsetWidth) + 12
-        if (lastWidth == null || lastWidth !== wrapWidth) apiBridge.setContentSize({ width: (lastWidth = wrapWidth) })
-      }
-
-      const updateToolTip = () => {
-        if (lastInfo === lastData) return
-        lastInfo = lastData
-        lastInfo && apiBridge.getPriceInfo({ type: 'text', data: lastInfo }).then(res => { priceDom.setAttribute('title', res) })
-      }
-
-      for (let key in settingWatch) {
-        let item = settingWatch[key]
-        if (item.immediate && item.handler) {
-          let { [key]: val = item.default } = setting
-          item.handler(val)
-        }
-      }
-
-      window.addEventListener('mousemove', updateToolTip, { passive: true })
-
-      window.addEventListener('mouseenter', updateToolTip)
-
-      apiBridge.isUseCssDrag().then(res => {
-        document.body.style.setProperty('-webkit-app-region', res ? 'drag' : 'no-drag')
-        if (!res) {
-          window.addEventListener('mousedown', (e) => {
-            if (e.button == 0 || e.button == 1) apiBridge.setDragState(true)
-          })
-          window.addEventListener('mouseup', (e) => {
-            if (e.button == 0 || e.button == 1) apiBridge.setDragState(false)
-          })
-          window.addEventListener('contextmenu', (e) => {
-            apiBridge.setDragState(false)
-          })
-        }
-      })
-
-      apiBridge.onGetPriceData(() => { apiBridge.setPriceData(lastData) })
-
-      apiBridge.onVisibleChange((event, res) => { getPrice(res) })
-
-      apiBridge.onSettingChange((event, res) => {
-        let effects = []
-        for (let key in settingWatch) {
-          let item = settingWatch[key], { [key]: val = item.default } = res, { [key]: oval } = setting
-          if (val !== oval && item.handler) effects.push({ key, val, oval })
-        }
-        Object.assign(setting, res)
-        effects.length && effects.forEach(v => settingWatch[v.key].handler(v.val, v.oval))
-        loop && getPrice()
-      })
-    </script>
+    <script type="module" src="renderer.js" defer></script>
   </body>
 </html>

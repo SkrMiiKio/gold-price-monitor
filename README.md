@@ -1,10 +1,10 @@
-<div style="text-align: center;">
+<div align="center">
   <img src="https://github.com/SkrMiiKio/gold-price-monitor/blob/main/src/assets/dollar-alpha.png?raw=true">
   <h1 style="margin: 0;">gold-price-monitor</h1>
   <h3 style="margin: 0 0 0.5em;">金价实时监控</h3>
   <p style="margin: 0 0 1em;">精简悬浮窗监控桌面程序，实时监控黄金价格的变化</p>
   <p>
-    <a href="https://gitee.com/miikio/gold-price-monitor/releases"><img src="https://img.shields.io/badge/version-0.2.0-green"></a>
+    <a href="https://github.com/SkrMiiKio/gold-price-monitor/releases"><img src="https://img.shields.io/badge/version-0.3.0-green"></a>
     <a href="https://www.electronjs.org"><img src="https://img.shields.io/badge/electron-28.x-4FC08D?logo=electron&logoColor=FFF"></a>
     <a href="https://github.com/SkrMiiKio"><img src="https://img.shields.io/badge/github-SkrMiiKio-blue?logo=github"></a>
     <a href="https://gitee.com/miikio"><img src="https://img.shields.io/badge/gitee-MiiKio-blue?logo=gitee"></a>
@@ -17,10 +17,10 @@
 ## 📋 项目简介
 * 主页 (github)：[https://github.com/SkrMiiKio/gold-price-monitor](https://github.com/SkrMiiKio/gold-price-monitor)
 * 主页 (gitee)：[https://gitee.com/miikio/gold-price-monitor](https://gitee.com/miikio/gold-price-monitor)
-* 最新版本：`0.2.0`
-* 更新时间：2026-04-14
+* 最新版本：`0.3.0`
+* 更新时间：2026-08-21
 * 定位：金融分析工具、桌面程序、悬浮窗程序。
-* 介绍：精简悬浮窗监控桌面程序，实时监控黄金价格的变化。接口基于京东金融平台，支持查看国际金价、各大银行积存金价格、美元指数、人民币汇率。
+* 介绍：精简悬浮窗监控桌面程序，实时监控黄金价格的变化。接口基于京东金融平台，支持查看国际金价/银价/油价、各大银行积存金价格、美元指数、人民币汇率。
 * 发行包下载：[Github下载](https://github.com/SkrMiiKio/gold-price-monitor/releases/latest)丨[Gitee下载](https://gitee.com/miikio/gold-price-monitor/releases/latest)
 
 ---
@@ -60,9 +60,15 @@ npm run make
 | 民生积存金 | 银行积存金 | 京东金融 | ✓ |
 | 浙商积存金 | 银行积存金 | 京东金融 | ✓ |
 | 工商积存金 | 银行积存金 | 京东金融 | ✓ |
-| 广发积存金 | 银行积存金 | 京东金融 | ✕ |
-| 兴业积存金 | 银行积存金 | 京东金融 | ✕ |
-| 离岸人民币 | 货币汇率 | 京东金融 | ✓ |
+| 广发积存金 | 银行积存金 | 京东金融 | ✓ |
+| 兴业积存金 | 银行积存金 | 京东金融 | ✓ |
+| 中信积存金 | 银行积存金 | 京东金融 | ✓ |
+| 京东24小时金价 | 金价指数 | 京东金融 | ✓ |
+| 现货黄金 | 金价指数 | 京东金融 | ✓ |
+| 现货白银 | 银价指数 | 京东金融 | ✓ |
+| WTI原油 | 原油指数 | 京东金融 | ✓ |
+| 布伦特原油 | 原油指数 | 京东金融 | ✓ |
+| 人民币汇率 | 货币汇率 | 京东金融 | ✓ |
 | 美元指数 | 货币指数 | 京东金融 | ✓ |
 
 ---

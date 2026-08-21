@@ -4,7 +4,10 @@
  */
 export const getSimpleQuoteUseUniqueCodes = async (uniqueCodes) => {
   let params = JSON.stringify({ ticket: 'gold-price-h5', uniqueCodes })
-  let res = await fetch(`https://ms.jr.jd.com/gw2/generic/jdtwt/h5/m/getSimpleQuoteUseUniqueCodes?reqData=${encodeURIComponent(params)}`)
+  let res = await fetch(
+    `https://ms.jr.jd.com/gw2/generic/jdtwt/h5/m/getSimpleQuoteUseUniqueCodes?reqData=${encodeURIComponent(params)}`,
+    { method: 'GET', cache: 'no-cache' }
+  )
   return (await res.json()).resultData || {}
 }
 
@@ -14,7 +17,10 @@ export const getSimpleQuoteUseUniqueCodes = async (uniqueCodes) => {
  */
 export const getFirstRelatedProductInfo = async (productSku) => {
   let params = JSON.stringify({ invokeSource: 5, circleId: '13245', productId: productSku })
-  let res = await fetch(`https://ms.jr.jd.com/gw2/generic/CreatorSer/newh5/m/getFirstRelatedProductInfo?reqData=${encodeURIComponent(params)}`)
+  let res = await fetch(
+    `https://ms.jr.jd.com/gw2/generic/CreatorSer/newh5/m/getFirstRelatedProductInfo?reqData=${encodeURIComponent(params)}`,
+    { method: 'GET', cache: 'no-cache' }
+  )
   return (await res.json()).resultData || {}
 }
 
@@ -23,7 +29,10 @@ export const getFirstRelatedProductInfo = async (productSku) => {
  *  @param  {String}  uniqueCode  唯一码
  */
 export const getGoldPrice = async (uniqueCode) => {
-  let res = await fetch(`https://api.jdjygold.com/gw2/generic/produTools/h5/m/getGoldPrice?goldCode=${encodeURIComponent(uniqueCode)}`)
+  let res = await fetch(
+    `https://api.jdjygold.com/gw2/generic/produTools/h5/m/getGoldPrice?goldCode=${encodeURIComponent(uniqueCode)}`,
+    { method: 'GET', cache: 'no-cache' }
+  )
   return (await res.json()).resultData || {}
 }
 
@@ -32,7 +41,10 @@ export const getGoldPrice = async (uniqueCode) => {
  *  @param  {String}  productSku  产品SKU
  */
 export const getStdLatestPrice = async (productSku) => {
-  let res = await fetch(`https://api.jdjygold.com/gw2/generic/jrm/h5/m/stdLatestPrice?productSku=${encodeURIComponent(productSku)}`)
+  let res = await fetch(
+    `https://api.jdjygold.com/gw2/generic/jrm/h5/m/stdLatestPrice?productSku=${encodeURIComponent(productSku)}`,
+    { method: 'GET', cache: 'no-cache' }
+  )
   return (await res.json()).resultData || {}
 }
 
@@ -41,6 +53,9 @@ export const getStdLatestPrice = async (productSku) => {
  *  @see  https://m.jr.jd.com/finance-gold/msjgold/homepage
  */
 export const getMinShengLatestPrice = async () => {
-  let res = await fetch('https://ms.jr.jd.com/gw/generic/hj/h5/m/latestPrice')
+  let res = await fetch(
+    'https://ms.jr.jd.com/gw/generic/hj/h5/m/latestPrice',
+    { method: 'GET', cache: 'no-cache' }
+  )
   return (await res.json()).resultData || {}
 }
